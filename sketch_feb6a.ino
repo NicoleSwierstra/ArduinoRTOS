@@ -4,25 +4,29 @@
 #define LEFT_SERVO        3
 #define RIGHT_SERVO       4
 
-#define INPUT_PORT_Pos    0
+#define INPUT_PORT_Pos    5
 
-#define LEFT_IR           (1 << 0)
-#define CENTER_IR         (1 << 1)
-#define RIGHT_IR          (1 << 2)
+#define LEFT_Pos          0
+#define CENTER_Pos        1
+#define RIGHT_Pos         2
+
+#define LEFT_IR           (1 << LEFT_Pos)
+#define CENTER_IR         (1 << CENTER_Pos)
+#define RIGHT_IR          (1 << RIGHT_Pos)
 
 #define BUFFER_POW 5
-#define CALIBRATION_MODE 0
 const int BUFFER_LEN = (2 << BUFFER_POW); /* Int so it's not recalculated */
+#define CALIBRATION_MODE 0
 
 Servo leftServo;
 Servo rightServo;
 
-kernel rtos_scheduler = {0};
+kernel rtos_scheduler;
 
 void task();
 
 struct _state {
-    uint8_t buffer[BUFFER_LEN];
+    uint8_t buffer[BUFFER_LEN * 2]; /* doubling up the buffer and copying the data means that we can do a continous read w/o a mod function */
     uint16_t bufferptr;
 
     uint8_t lookahead[3];
@@ -30,58 +34,59 @@ struct _state {
 } state;
 
 
-uint32_t collapse() {
-    uint8_t la_left = 0,
-            la_right = 0, 
-            la_center = 0;
+void collapse() {
+    uint16_t la_left = 0,
+             la_right = 0, 
+             la_center = 0;
 
-    uint8_t lb_left = 0,
-            lb_center = 0,
-            lb_right = 0;
+    uint16_t lb_left = 0,
+             lb_center = 0,
+             lb_right = 0;
 
-    for (int i = 0; i < BUFFER_LEN; i++){
-        la_left += (state.buffer[i] & LEFT_IR);
-        la_right += (state.buffer[i] & LEFT_IR);
-        la_center += (state.buffer[i] & LEFT_IR);
+    for (int i = state.bufferptr; i < state.bufferptr + BUFFER_LEN; i++){
+        int16_t multiplier = (state.bufferptr - i) + BUFFER_LEN;
 
-        lb_left += (state.buffer[i] & LEFT_IR);
-        lb_right += (state.buffer[i] & LEFT_IR);
-        lb_center += (state.buffer[i] & LEFT_IR);
+        la_left += (state.buffer[i] & LEFT_IR) * multiplier;
+        la_right += (state.buffer[i] & RIGHT_IR) * multiplier;
+        la_center += (state.buffer[i] & CENTER_IR) * multiplier;
+
+        multiplier = (i - state.bufferptr);
+        lb_left += (state.buffer[i] & LEFT_IR) * multiplier;
+        lb_right += (state.buffer[i] & RIGHT_IR) * multiplier;
+        lb_center += (state.buffer[i] & CENTER_IR) * multiplier;
     }
+
+    state.lookahead[0] = la_left >> BUFFER_POW;
+    state.lookahead[1] = la_right >> BUFFER_POW;
+    state.lookahead[2] = la_center >> BUFFER_POW;
+
+    state.lookbehind[0] = lb_left >> BUFFER_POW;
+    state.lookbehind[1] = lb_right >> BUFFER_POW;
+    state.lookbehind[2] = lb_center >> BUFFER_POW;
 }
 
 void fastRead(){
     state.bufferptr++;
-    state.buffer[state.bufferptr] = PIND >> INPUT_PORT_Pos;
+    state.bufferptr = state.bufferptr % BUFFER_LEN;
+
+    uint8_t read = PIND >> INPUT_PORT_Pos;
+    state.buffer[state.bufferptr] = read;
+    state.buffer[state.bufferptr + BUFFER_LEN] = read;
 }
 
 void task(){
-  switch(PIND >> INPUT_PORT_Pos) {
-    case LEFT_IR | CENTER_IR | RIGHT_IR:
-    case LEFT_IR | RIGHT_IR:
-      leftServo.write(90);
-      rightServo.write(90); 
-      break;
-    case LEFT_IR | CENTER_IR:
-    case LEFT_IR:
-      leftServo.write(90);
-      rightServo.write(0); 
-      break;
-    case CENTER_IR:
-    case 0:
-      leftServo.write(180);
-      rightServo.write(0);
-      break;
-    case RIGHT_IR | CENTER_IR:
-    case RIGHT_IR:
-      leftServo.write(180);
-      rightServo.write(90);
-      break;
-  }
+    collapse();
+
+    if(state.lookahead[LEFT_Pos] < 30 && state.lookahead[RIGHT_Pos] < 30 && 0){
+        leftServo.write(180);
+        rightServo.write(0);
+    }
 }
 
 void setup() {
-    RTOS_init();
+    Serial.begin(9600);
+    delay(1000);
+    Serial.println("Hello World!");
 
     DDRD = 0xFF & ~(0b111 << INPUT_PORT_Pos);
 
@@ -96,7 +101,22 @@ void setup() {
     while(1);
 #endif
 
-    cli();
+    RTOS_init();
+    uint32_t stateHandle = RTOS_addState(NULL, NULL);
+    uint32_t taskHandle; 
+
+    /* runs motors every 20ms*/
+    taskHandle = RTOS_scheduleTask(stateHandle, task, 20);
+    Serial.println(taskHandle);
+    if(taskHandle == -1) return;
+
+    /* reads data every ms */
+    taskHandle = RTOS_scheduleTask(stateHandle, fastRead, 1);
+    Serial.println(taskHandle);
+    if(taskHandle == -1) return;
+
+    cli(); /* disable interrupts */
+    /* Sets a timer to update the rtos every ms */
     TCCR0A = 0;
     TCCR0B = 0;
     TCNT0  = 0; /* Set counter to be 0 */
@@ -105,14 +125,18 @@ void setup() {
     TCCR0B |= 0b11; /* Set prescaler at 64x */
     TIMSK0 |= (1 << OCIE0A); /* Start timer cmp interrupt */
     sei(); /* Enable interrupts */
+    
+    while (1){
+        //Serial.print("todo: ");
+        //Serial.println(((uint32_t)rtos_scheduler.taskQue));
+        RTOS_ExecuteTasks();
+    }
 }
 
 /* This is a goofy macro lol */
 ISR(TIMER0_COMPA_vect){
     RTOS_Update();
+    rtos_scheduler.taskQue = 0b11;
 }
 
-
-void loop() {
-    RTOS_ExecuteTasks();
-}
+void loop(){}

@@ -11,7 +11,7 @@
 extern "C" {
 #endif
     
-#define RTOS_maxTaskNum  64
+#define RTOS_maxTaskNum  32
 #define RTOS_maxStateNum 16
 
 typedef struct {
@@ -23,17 +23,18 @@ typedef struct {
 typedef struct {
     void (*entry)();
     void (*exit)();
-    uint64_t taskMask;
+    uint32_t taskMask;
 } rtos_state;
 
 typedef struct {
-    uint64_t taskQue; 
-    uint8_t numberOfTasks;
-    rtos_task tasks[RTOS_maxTaskNum];
+    volatile uint32_t taskQue; 
+    volatile uint8_t numberOfTasks;
+    volatile rtos_task tasks[RTOS_maxTaskNum];
 
-    uint8_t numberOfStates;
-    uint8_t state;
-    rtos_state states[RTOS_maxStateNum];
+    volatile uint8_t updateLock;
+    volatile uint8_t numberOfStates;
+    volatile uint8_t state;
+    volatile rtos_state states[RTOS_maxStateNum];
 } kernel;
 
 extern kernel rtos_scheduler;
