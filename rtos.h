@@ -7,6 +7,10 @@
 #ifndef _RTOS_
 #define _RTOS_
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+    
 #define RTOS_maxTaskNum  64
 #define RTOS_maxStateNum 16
 
@@ -35,38 +39,40 @@ typedef struct {
 extern kernel rtos_scheduler;
 
 /**
- *  Inits and zeros the RTOS, just in case
- */
+*  Inits and zeros the RTOS, just in case
+*/
 int RTOS_init(void);
 
 /**
- *  Adds a state to the car, and then returns the index of the state
- */
+*  Adds a state to the car, and then returns the index of the state
+*/
 int RTOS_addState(void (*start), void (*stop));
 
 /**
- * switches the cars state to the state in the pool at index of @state
- */
+* switches the cars state to the state in the pool at index of @state
+*/
 int RTOS_switchState(uint8_t state);
 
 /**
- * Checks if you are in that state
- */
+* Checks if you are in that state
+*/
 int RTOS_inState(uint8_t state);
 
 /**
- * schedules a task to be performed in the referenced state
- */
+* schedules a task to be performed in the referenced state
+*/
 int RTOS_scheduleTask(uint8_t state, void (*function)(), uint16_t period);
 
 /**
- * In interrupt, calls events and queues tasks
- */
+* In interrupt, calls events and queues tasks
+*/
 int RTOS_Update(void);
 
 /**
- * In non-rt context, calls tasks that have been queued
- */
+* In non-rt context, calls tasks that have been queued
+*/
 int RTOS_ExecuteTasks(void);
-
+#if defined(__cplusplus)
+}
+#endif
 #endif

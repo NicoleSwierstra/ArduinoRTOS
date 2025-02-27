@@ -2,11 +2,9 @@
 
 
 extern int RTOS_init(){
-    rtos_scheduler.firstEventIndex = -1;
     rtos_scheduler.numberOfStates = 0;
     rtos_scheduler.numberOfTasks = 0;
     rtos_scheduler.taskQue = 0;
-    rtos_scheduler.eventQue = 0;
     rtos_scheduler.state = 0;
 
     for(int i = 0; i < RTOS_maxStateNum; i++){
