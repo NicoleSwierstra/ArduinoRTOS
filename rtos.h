@@ -31,7 +31,6 @@ typedef struct {
     volatile uint8_t numberOfTasks;
     volatile rtos_task tasks[RTOS_maxTaskNum];
 
-    volatile uint8_t updateLock;
     volatile uint8_t numberOfStates;
     volatile uint8_t state;
     volatile rtos_state states[RTOS_maxStateNum];

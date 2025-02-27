@@ -84,8 +84,6 @@ extern int RTOS_scheduleTask(uint8_t state, void (*function)(), uint16_t period)
  * called in ms interrupt context to schedule the tasks and execute the events
  */
 extern int RTOS_Update(){
-    if(rtos_scheduler.updateLock > 0) return -1;
-
     for(int i = 0; i < rtos_scheduler.numberOfTasks; i++){ 
         rtos_scheduler.tasks[i].counter--;
 
@@ -104,16 +102,12 @@ extern int RTOS_Update(){
  * called in main context to execute all tasks and events
  */
 extern int RTOS_ExecuteTasks(){
-    rtos_scheduler.updateLock = 1;
-
     for(int i = 0; i < rtos_scheduler.numberOfTasks; i++){
         if ((rtos_scheduler.taskQue >> i) & 0x1){
             rtos_scheduler.tasks[i].callback();
             rtos_scheduler.taskQue &= ~(0x1 << i);
         }
     }
-
-    rtos_scheduler.updateLock = 0;
     
     return 0;
 }
