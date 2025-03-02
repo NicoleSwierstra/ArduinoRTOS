@@ -1,6 +1,24 @@
 #include <Servo.h>
 #include "rtos.h"
 
+/*
+ * Speeds:
+ * +- 90  = 26cm/s
+ * +- 70  = 26cm/s
+ * +- 60  = 26cm/s
+ * +- 45  = 25cm/s
+ * +- 30  = 20cm/s
+ * +- 15  = 11cm/s
+ * 
+ * Speeds (9v):
+ * +- 90  = 60cm/s
+ * +- 70  = 26cm/s
+ * +- 60  = 26cm/s
+ * +- 45  = 25cm/s
+ * +- 30  = 20cm/s
+ * +- 15  = 11cm/s
+ */
+
 #define LEFT_SERVO        3
 #define RIGHT_SERVO       4
 
@@ -14,7 +32,7 @@
 #define CENTER_IR         (1 << CENTER_Pos)
 #define RIGHT_IR          (1 << RIGHT_Pos)
 
-#define BUFFER_POW 5
+#define BUFFER_POW 6
 const int BUFFER_LEN = (2 << BUFFER_POW); /* Int so it's not recalculated */
 #define CALIBRATION_MODE 0
 
@@ -44,25 +62,25 @@ void collapse() {
              lb_right = 0;
 
     for (int i = state.bufferptr; i < state.bufferptr + BUFFER_LEN; i++){
-        int16_t multiplier = (state.bufferptr - i) + BUFFER_LEN;
+        uint16_t multiplier = ((state.bufferptr + BUFFER_LEN) - i);
 
-        la_left += (state.buffer[i] & LEFT_IR) * multiplier;
-        la_right += (state.buffer[i] & RIGHT_IR) * multiplier;
-        la_center += (state.buffer[i] & CENTER_IR) * multiplier;
+        la_left += ((state.buffer[i] >> LEFT_Pos) & 0x1) * multiplier;
+        la_right += ((state.buffer[i] >> RIGHT_Pos) & 0x1) * multiplier;
+        la_center += ((state.buffer[i] >> CENTER_Pos) & 0x1) * multiplier;
 
         multiplier = (i - state.bufferptr);
-        lb_left += (state.buffer[i] & LEFT_IR) * multiplier;
-        lb_right += (state.buffer[i] & RIGHT_IR) * multiplier;
-        lb_center += (state.buffer[i] & CENTER_IR) * multiplier;
+        lb_left += ((state.buffer[i] >> LEFT_Pos) & 0x1) * multiplier;
+        lb_right += ((state.buffer[i] >> RIGHT_Pos) & 0x1) * multiplier;
+        lb_center += ((state.buffer[i] >> CENTER_Pos) & 0x1) * multiplier;
     }
 
     state.lookahead[0] = la_left >> BUFFER_POW;
-    state.lookahead[1] = la_right >> BUFFER_POW;
-    state.lookahead[2] = la_center >> BUFFER_POW;
+    state.lookahead[1] = la_center >> BUFFER_POW;
+    state.lookahead[2] = la_right >> BUFFER_POW;
 
     state.lookbehind[0] = lb_left >> BUFFER_POW;
-    state.lookbehind[1] = lb_right >> BUFFER_POW;
-    state.lookbehind[2] = lb_center >> BUFFER_POW;
+    state.lookbehind[1] = lb_center >> BUFFER_POW;
+    state.lookbehind[2] = lb_right >> BUFFER_POW;
 }
 
 void fastRead(){
@@ -77,9 +95,23 @@ void fastRead(){
 void task(){
     collapse();
 
-    if(state.lookahead[LEFT_Pos] < 30 && state.lookahead[RIGHT_Pos] < 30 && 0){
+    Serial.print(state.lookahead[LEFT_Pos]);
+    Serial.print(",");
+    Serial.print(state.lookahead[CENTER_Pos]);
+    Serial.print(",");
+    Serial.println(state.lookahead[RIGHT_Pos]);
+
+    if(state.lookahead[LEFT_Pos] < 20 && state.lookahead[RIGHT_Pos] < 20 && state.lookahead[CENTER_Pos] > 20){
         leftServo.write(180);
         rightServo.write(0);
+    }
+    else if(state.lookahead[LEFT_Pos] > 20 && state.lookahead[RIGHT_Pos] < 20 && state.lookahead[CENTER_Pos] < 20){
+        leftServo.write(90);
+        rightServo.write(0);
+    }
+    else if(state.lookahead[LEFT_Pos] < 20 && state.lookahead[RIGHT_Pos] > 20 && state.lookahead[CENTER_Pos] < 20){
+        leftServo.write(180);
+        rightServo.write(90);
     }
 }
 
@@ -110,8 +142,8 @@ void setup() {
     Serial.println(taskHandle);
     if(taskHandle == -1) return;
 
-    /* reads data every ms */
-    taskHandle = RTOS_scheduleTask(stateHandle, fastRead, 1);
+    /* reads data every ms, approximately every mm */
+    taskHandle = RTOS_scheduleTask(stateHandle, fastRead, 2);
     Serial.println(taskHandle);
     if(taskHandle == -1) return;
 
@@ -127,8 +159,6 @@ void setup() {
     sei(); /* Enable interrupts */
     
     while (1){
-        //Serial.print("todo: ");
-        //Serial.println(((uint32_t)rtos_scheduler.taskQue));
         RTOS_ExecuteTasks();
     }
 }
@@ -136,7 +166,6 @@ void setup() {
 /* This is a goofy macro lol */
 ISR(TIMER0_COMPA_vect){
     RTOS_Update();
-    rtos_scheduler.taskQue = 0b11;
 }
 
 void loop(){}
