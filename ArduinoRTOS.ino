@@ -34,8 +34,11 @@
 #define RIGHT_IR          (1 << RIGHT_Pos)
 
 #define BUFFER_POW 5
-const int BUFFER_LEN = (2 << BUFFER_POW); /* Int so it's not recalculated */
+const int BUFFER_LEN = (1 << BUFFER_POW); /* Int so it's not recalculated */
 #define CALIBRATION_MODE 0
+
+#define INERTIA_POW 4
+const int INERTIA_MULTI = (1 << (INERTIA_POW)) - 1; 
 
 Servo leftServo;
 Servo rightServo;
@@ -63,7 +66,7 @@ void collapse() {
              lb_right = 0;
 
     for (int i = state.bufferptr; i < state.bufferptr + BUFFER_LEN; i++){
-        uint16_t multiplier = ((state.bufferptr + BUFFER_LEN) - i);
+        uint16_t multiplier = ((state.bufferptr + BUFFER_LEN) - (i + 1));
 
         la_left += ((state.buffer[i] >> LEFT_Pos) & 0x1) * multiplier;
         la_right += ((state.buffer[i] >> RIGHT_Pos) & 0x1) * multiplier;
@@ -96,24 +99,29 @@ void fastRead(){
 void task(){
     collapse();
 
-    uint8_t p0 = (state.lookahead[0]  *   4) / BUFFER_LEN;
-    uint8_t p1 = (state.lookahead[1]  *   4) / BUFFER_LEN;
-    uint8_t p2 = (state.lookahead[2]  *   4) / BUFFER_LEN;
-    uint8_t p3 = (state.lookbehind[0] *   4) / BUFFER_LEN;
-    uint8_t p4 = (state.lookbehind[1] *   4) / BUFFER_LEN;
-    uint8_t p5 = (state.lookbehind[2] *   4) / BUFFER_LEN;
+    static uint32_t inertia_l = 0, inertia_r = 0;
 
-    uint8_t cmd_l = lookuptable[p0][p1][p2][p3][p4][p5 * 2] + 90;
-    uint8_t cmd_r = -lookuptable[p0][p1][p2][p3][p4][p5 * 2 + 1] + 90;
+    uint8_t p0 = (uint8_t)(state.lookahead[0]  *   4) >> BUFFER_POW;
+    uint8_t p1 = (uint8_t)(state.lookahead[1]  *   4) >> BUFFER_POW;
+    uint8_t p2 = (uint8_t)(state.lookahead[2]  *   4) >> BUFFER_POW;
+    uint8_t p3 = (uint8_t)(state.lookbehind[0] *   4) >> BUFFER_POW;
+    uint8_t p4 = (uint8_t)(state.lookbehind[1] *   4) >> BUFFER_POW;
+    uint8_t p5 = (uint8_t)(state.lookbehind[2] *   4) >> BUFFER_POW;
 
-    leftServo.write(cmd_l);
-    rightServo.write(cmd_r);
+    uint8_t cmd_l = 90 - lookuptable[p0][p1][p2][p3][p4][p5 * 2];
+    uint8_t cmd_r = 90 - lookuptable[p0][p1][p2][p3][p4][p5 * 2 + 1];
+
+    inertia_l = (inertia_l * INERTIA_MULTI) >> INERTIA_POW;
+
+    leftServo.write(inertia_l);
+    rightServo.write(inertia_r);
 }
 
 void setup() {
     Serial.begin(9600);
-    delay(1000);
-    Serial.println("Hello World!");
+    pinMode(13, INPUT_PULLUP);
+
+    for(int i = 0; i < 10000; i++);
 
     DDRD = 0xFF & ~(0b111 << INPUT_PORT_Pos);
 
@@ -121,6 +129,10 @@ void setup() {
     leftServo.write(90); /* Idle left motor */
     rightServo.attach(RIGHT_SERVO);
     rightServo.write(90); /* Idle right motor */
+
+    while(!digitalRead(13));
+
+    for(int i = 0; i < 10000; i++);
 
     /* TODO: CLOCK SETUP FOR 20MHz SYSTEM CLOCK */
 
@@ -133,12 +145,12 @@ void setup() {
     uint32_t taskHandle; 
 
     /* runs motors every 20ms*/
-    taskHandle = RTOS_scheduleTask(stateHandle, task, 20);
+    taskHandle = RTOS_scheduleTask(stateHandle, task, 10);
     Serial.println(taskHandle);
     if(taskHandle == -1) return;
 
     /* reads data every ms, approximately every mm */
-    taskHandle = RTOS_scheduleTask(stateHandle, fastRead, 2);
+    taskHandle = RTOS_scheduleTask(stateHandle, fastRead, 1);
     Serial.println(taskHandle);
     if(taskHandle == -1) return;
 
